@@ -1,22 +1,49 @@
 'use server';
 import { doc } from '@/lib/googleSheets';
+import { cookies } from 'next/headers';
 
+// --- LOGIC LOGIN & LOGOUT ---
+export async function verifyPin(formData: FormData) {
+  const pin = formData.get('pin') as string;
+  const correctPin = process.env.APP_PIN;
+
+  if (pin === correctPin) {
+    const cookieStore = await cookies();
+    cookieStore.set('isLoggedIn', 'true', { 
+      maxAge: 60 * 60 * 24 * 30, // 30 Hari
+      httpOnly: true,
+      path: '/'
+    });
+    return { success: true };
+  } else {
+    return { success: false };
+  }
+}
+
+export async function logout() {
+  const cookieStore = await cookies();
+  cookieStore.delete('isLoggedIn');
+}
+
+// --- LOGIC DATABASE ---
 export async function addTransaction(formData: any) {
   try {
     await doc.loadInfo();
     
+    // Logic Sheet 2 (Pekerjaan)
     if (formData.type === 'REMINDER') {
-      const sheetJob = doc.sheetsByIndex[1]; // Sheet 2 (Pekerjaan)
-      if (!sheetJob) throw new Error("Sheet 2 tidak ditemukan!");
+      const sheetJob = doc.sheetsByIndex[1];
+      if (!sheetJob) throw new Error("Sheet 2 (Pekerjaan) belum dibuat!");
       
-      // Simpan sesuai Header baru
       await sheetJob.addRow({
-        Kegiatan: formData.desc,       // Kita pakai variable desc untuk Kegiatan
-        Requester: formData.requester, // Variable baru
+        Kegiatan: formData.desc,
+        Requester: formData.requester,
         Deadline: formData.deadline
       });
-    } else {
-      const sheetMoney = doc.sheetsByIndex[0]; // Sheet 1 (Uang)
+    } 
+    // Logic Sheet 1 (Uang)
+    else {
+      const sheetMoney = doc.sheetsByIndex[0];
       const d = new Date(formData.date);
       const dateStr = `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}`;
 
@@ -29,7 +56,6 @@ export async function addTransaction(formData: any) {
         Tabungan: formData.savings || 0
       });
     }
-
     return { success: true };
   } catch (error) {
     console.error("Gagal simpan:", error);
@@ -41,7 +67,7 @@ export async function getTransactions() {
   try {
     await doc.loadInfo();
     
-    // 1. Data Uang (Sheet 1)
+    // Ambil Data Uang
     const sheetMoney = doc.sheetsByIndex[0];
     const rowsMoney = await sheetMoney.getRows();
     const dataMoney = rowsMoney.map((row) => ({
@@ -51,22 +77,21 @@ export async function getTransactions() {
       desc: row.get('Deskripsi'),
       amount: parseInt(row.get('Nominal') || '0'),
       savings: parseInt(row.get('Tabungan') || '0'),
-      requester: '-', // Uang tidak ada requester
+      requester: '-',
       deadline: '-',
     }));
 
-    // 2. Data Pekerjaan (Sheet 2)
+    // Ambil Data Pekerjaan (Cek dulu Sheet 2 ada atau tidak)
     let dataJobs: any[] = [];
     const sheetJob = doc.sheetsByIndex[1];
-    
     if (sheetJob) {
       const rowsJobs = await sheetJob.getRows();
       dataJobs = rowsJobs.map((row) => ({
         date: '-', 
         type: 'REMINDER',
         category: 'Pekerjaan',
-        desc: row.get('Kegiatan'),      // Ambil dari kolom Kegiatan
-        requester: row.get('Requester'), // Ambil dari kolom Requester
+        desc: row.get('Kegiatan'),
+        requester: row.get('Requester'),
         amount: 0,
         savings: 0,
         deadline: row.get('Deadline'),
