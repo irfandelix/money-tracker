@@ -6,18 +6,12 @@ import { cookies } from 'next/headers';
 export async function verifyPin(formData: FormData) {
   const pin = formData.get('pin') as string;
   const correctPin = process.env.APP_PIN;
-
   if (pin === correctPin) {
     const cookieStore = await cookies();
-    cookieStore.set('isLoggedIn', 'true', { 
-      maxAge: 60 * 60 * 24 * 30, // 30 Hari
-      httpOnly: true,
-      path: '/'
-    });
+    cookieStore.set('isLoggedIn', 'true', { maxAge: 60 * 60 * 24 * 30, httpOnly: true, path: '/' });
     return { success: true };
-  } else {
-    return { success: false };
   }
+  return { success: false };
 }
 
 export async function logout() {
@@ -25,40 +19,39 @@ export async function logout() {
   cookieStore.delete('isLoggedIn');
 }
 
-// --- LOGIC DATABASE ---
+// --- LOGIC DATABASE (DIPERKUAT) ---
 export async function addTransaction(formData: any) {
   try {
     await doc.loadInfo();
     
-    // Logic Sheet 2 (Pekerjaan)
+    // Simpan Pekerjaan (Sheet Index 1)
     if (formData.type === 'REMINDER') {
-      const sheetJob = doc.sheetsByIndex[1];
-      if (!sheetJob) throw new Error("Sheet 2 (Pekerjaan) belum dibuat!");
+      const sheetJob = doc.sheetsByIndex[1]; 
+      if (!sheetJob) throw new Error("Sheet 2 (Pekerjaan) tidak ditemukan di Google Sheet!");
       
       await sheetJob.addRow({
-        Kegiatan: formData.desc,
-        Requester: formData.requester,
-        Deadline: formData.deadline
+        'Kegiatan': formData.desc || '-',
+        'Requester': formData.requester || '-',
+        'Deadline': formData.deadline || '-'
       });
     } 
-    // Logic Sheet 1 (Uang)
+    // Simpan Uang (Sheet Index 0)
     else {
       const sheetMoney = doc.sheetsByIndex[0];
       const d = new Date(formData.date);
       const dateStr = `${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}`;
-
       await sheetMoney.addRow({
-        Tanggal: dateStr,
-        Tipe: formData.type,
-        Kategori: formData.category || '-',
-        Deskripsi: formData.desc,
-        Nominal: formData.amount || 0,
-        Tabungan: formData.savings || 0
+        'Tanggal': dateStr,
+        'Tipe': formData.type,
+        'Kategori': formData.category || '-',
+        'Deskripsi': formData.desc,
+        'Nominal': formData.amount || 0,
+        'Tabungan': formData.savings || 0
       });
     }
     return { success: true };
   } catch (error) {
-    console.error("Gagal simpan:", error);
+    console.error("GAGAL SIMPAN:", error);
     return { success: false };
   }
 }
@@ -67,7 +60,7 @@ export async function getTransactions() {
   try {
     await doc.loadInfo();
     
-    // Ambil Data Uang
+    // 1. Ambil Data Uang
     const sheetMoney = doc.sheetsByIndex[0];
     const rowsMoney = await sheetMoney.getRows();
     const dataMoney = rowsMoney.map((row) => ({
@@ -81,27 +74,42 @@ export async function getTransactions() {
       deadline: '-',
     }));
 
-    // Ambil Data Pekerjaan (Cek dulu Sheet 2 ada atau tidak)
+    // 2. Ambil Data Pekerjaan (Dengan Pengecekan Ekstra)
     let dataJobs: any[] = [];
-    const sheetJob = doc.sheetsByIndex[1];
-    if (sheetJob) {
+    // Pastikan ada Sheet ke-2
+    if (doc.sheetCount > 1) {
+      const sheetJob = doc.sheetsByIndex[1];
       const rowsJobs = await sheetJob.getRows();
-      dataJobs = rowsJobs.map((row) => ({
-        date: '-', 
-        type: 'REMINDER',
-        category: 'Pekerjaan',
-        desc: row.get('Kegiatan'),
-        requester: row.get('Requester'),
-        amount: 0,
-        savings: 0,
-        deadline: row.get('Deadline'),
-      }));
+      
+      dataJobs = rowsJobs.map((row) => {
+        // Logika Pengaman: Coba ambil dengan berbagai variasi nama kolom
+        const keg = row.get('Kegiatan') || row.get('kegiatan') || 'Tanpa Nama';
+        const req = row.get('Requester') || row.get('requester') || '-';
+        const dl = row.get('Deadline') || row.get('deadline') || new Date().toISOString();
+
+        return {
+          date: '-', 
+          type: 'REMINDER', // PENTING: Ini kuncinya biar muncul di filter
+          category: 'Pekerjaan',
+          desc: keg,
+          requester: req,
+          amount: 0,
+          savings: 0,
+          deadline: dl,
+        };
+      });
     }
 
+    // Gabung: Uang + Pekerjaan
+    // Kita taruh Jobs di DEPAN array agar muncul paling atas setelah di-reverse
     const allData = [...dataMoney, ...dataJobs];
+    
+    // Debugging (Cek di Terminal Vercel/VSCode jika masih error)
+    console.log(`Berhasil ambil: ${dataMoney.length} Transaksi, ${dataJobs.length} Pekerjaan.`);
+
     return { success: true, data: allData.reverse() };
   } catch (error) {
-    console.error("Gagal ambil data:", error);
+    console.error("GAGAL AMBIL DATA:", error);
     return { success: false, data: [] };
   }
 }
