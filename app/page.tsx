@@ -67,7 +67,7 @@ export default function DarkMoneyTracker() {
     }
   };
 
-  const handleSave = async (e: any) => {
+const handleSave = async (e: any) => {
     e.preventDefault();
     setIsLoading(true);
     let finalAmt = parseFloat(amount) || 0;
@@ -84,15 +84,28 @@ export default function DarkMoneyTracker() {
       if (addToCalendar && jobDeadline) generateICS(desc, jobDeadline);
     }
 
-    await addTransaction({
-      date: date || new Date().toISOString(),
-      type, amount: finalAmt, savings: finalSav, desc, category: cat, deadline: jobDeadline, requester
-    });
-    
-    await fetchData();
-    setIsLoading(false);
-    setAmount(''); setDesc(''); setDate(''); setIsGaji(false); setJobDeadline(''); setRequester(''); 
-    alert('Tersimpan!');
+    // --- BAGIAN INI YANG KITA PERBAIKI ---
+    try {
+      const res = await addTransaction({
+        date: date || new Date().toISOString(),
+        type, amount: finalAmt, savings: finalSav, desc, category: cat, deadline: jobDeadline, requester
+      });
+      
+      setIsLoading(false);
+
+      if (res.success) {
+        // HANYA JIKA SUKSES
+        await fetchData();
+        setAmount(''); setDesc(''); setDate(''); setIsGaji(false); setJobDeadline(''); setRequester(''); 
+        alert('✅ Data Berhasil Masuk Spreadsheet!');
+      } else {
+        // JIKA GAGAL
+        alert('❌ GAGAL MENYIMPAN!\n\nCek Settingan Vercel:\nPastikan "Environment Variables" (GOOGLE_PRIVATE_KEY, dll) sudah dimasukkan di dashboard Vercel.\n\nFile .env.local di laptop TIDAK terbaca oleh Vercel.');
+      }
+    } catch (err) {
+      setIsLoading(false);
+      alert('❌ Terjadi Error Koneksi');
+    }
   };
 
   const generateICS = (title: string, dStr: string) => {
